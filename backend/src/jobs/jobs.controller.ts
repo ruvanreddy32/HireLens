@@ -107,4 +107,10 @@ export class JobsController {
         return await this.jobsService.changeStatus(params.jobId,params.applicationId,body.status,req.user.userId);
     }
     
+    @Get("applications/me")
+    @UseGuards(JwtAuthGuard,RolesGuard)
+    @Roles("JOB_SEEKER")
+    async getMyApplications(@Req() req:AuthenticatedRequest){
+        return await this.jobsService.getMyApplications(req.user.userId);
+    }
 }

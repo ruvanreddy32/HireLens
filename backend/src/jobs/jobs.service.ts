@@ -234,4 +234,32 @@ export class JobsService {
       data: { status },
     });
   }
+  async getMyApplications(applicantId:string){
+    return this.prisma.jobApplication.findMany({
+      where: {
+        applicantId,
+      },
+      include: {
+        job: {
+          select: {
+            id: true,
+            title: true,
+            location: true,
+            workMode: true,
+            employmentType: true,
+            isActive: true,
+            recruiter: {
+              select: {
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
 }
