@@ -1,8 +1,8 @@
 import {z} from 'zod';
 
 export const createJob=z.object({
-    title:z.string().min(3,'Minimum length of 3 character required').max(25,'Maximum length of 25 characters is crossed'),
-    description:z.string().max(50,"maximum length of 50 exceeded"),
+    title:z.string().min(3,'Minimum length of 3 character required').max(100,'Maximum length of 100 characters is crossed'),
+    description:z.string().max(10000,"Maximum length of 10000 exceeded"),
     location:z.string(),
     workMode:z.enum(["ONSITE", "REMOTE", "HYBRID"]),
     employmentType:z.enum(["FULL_TIME", "PART_TIME", "INTERNSHIP"]),
