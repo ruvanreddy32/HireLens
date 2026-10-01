@@ -18,29 +18,26 @@ export class JobsService {
   constructor(private readonly prisma: PrismaService, private readonly ml: MlService) { }
 
   async createJob(recruiterId: string, data: createJobInput) {
+    const status = data.status ?? (data.isActive === false ? 'PAUSED' : 'ACTIVE');
+    const isActive = status === 'ACTIVE';
+
     return this.prisma.job.create({
       data: {
         recruiterId,
-
         title: data.title,
-        description: data.description,
-        location: data.location,
-
-        workMode: data.workMode,
-        employmentType: data.employmentType,
-
-        minExperience: data.minExperience,
+        description: data.description ?? '',
+        location: data.location ?? '',
+        workMode: data.workMode ?? 'HYBRID',
+        employmentType: data.employmentType ?? 'FULL_TIME',
+        minExperience: data.minExperience ?? 0,
         maxExperience: data.maxExperience,
-
         education: data.education,
-
-        requiredSkills: data.requiredSkills,
-
-        preferredSkills: data.preferredSkills,
-
+        requiredSkills: data.requiredSkills ?? [],
+        preferredSkills: data.preferredSkills ?? [],
         minSalary: data.minSalary,
         maxSalary: data.maxSalary,
-        isActive: data.isActive,
+        status,
+        isActive,
       },
     });
   }
@@ -58,6 +55,7 @@ export class JobsService {
   async getActiveJobs() {
     return this.prisma.job.findMany({
       where: {
+        status: 'ACTIVE',
         isActive: true,
       },
       orderBy: {
@@ -82,7 +80,7 @@ export class JobsService {
       throw new NotFoundException('job not found');
     }
     if (user.role == 'JOB_SEEKER') {
-      if (!job.isActive) {
+      if (job.status === 'DRAFT') {
         throw new NotFoundException('job not found');
       }
       return job;
@@ -137,18 +135,62 @@ export class JobsService {
       );
     }
 
+    const updateData: any = { ...data };
+
+    if (data.status !== undefined) {
+      updateData.status = data.status;
+      updateData.isActive = data.status === 'ACTIVE';
+    } else if (data.isActive !== undefined) {
+      updateData.isActive = data.isActive;
+      if (data.isActive) {
+        updateData.status = 'ACTIVE';
+      } else {
+        updateData.status = job.status === 'DRAFT' ? 'DRAFT' : 'PAUSED';
+      }
+    }
+
     return this.prisma.job.update({
       where: {
         id: jobId,
       },
-      data,
+      data: updateData,
+    });
+  }
+
+  async deleteJob(jobId: string, recruiterId: string) {
+    const job = await this.prisma.job.findUnique({
+      where: {
+        id: jobId,
+      },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Job not found');
+    }
+
+    if (job.recruiterId !== recruiterId) {
+      throw new ForbiddenException(
+        'You do not have permission to delete this job',
+      );
+    }
+
+    return this.prisma.job.delete({
+      where: {
+        id: jobId,
+      },
     });
   }
 
   async applyToJob(jobId: string, applicantId: string, file: Express.Multer.File) {
     const job = await this.prisma.job.findUnique({ where: { id: jobId } });
-    if (!job || !job.isActive) {
-      throw new NotFoundException("job not found or is inactive");
+    if (!job || job.status === 'DRAFT') {
+      throw new NotFoundException('Job not found');
+    }
+    if (job.status === 'PAUSED' || !job.isActive) {
+      throw new BadRequestException('Applications for this job are currently paused');
+    }
+    if (job.status === 'CLOSED') {
+      throw new BadRequestException('This job is closed and no longer accepting applications');
     }
 
     const exisitingApplication = await this.prisma.jobApplication.findFirst({ where: { jobId:jobId, applicantId: applicantId } });

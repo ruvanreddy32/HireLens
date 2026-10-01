@@ -34,21 +34,29 @@ model User {
   jobs Job[]
 }
 
+enum JobStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
   model Job{
     id       String @id @default(uuid())
     recruiterId      String 
     title            String 
-    description      String
-    location          String?
-    workMode          WorkMode
-    employmentType   EmploymentType
+    description      String?   @default("")
+    location          String?   @default("")
+    workMode          WorkMode  @default(HYBRID)
+    employmentType   EmploymentType @default(FULL_TIME)
     minExperience     Int @default(0)
     maxExperience     Int?
     education         String?
-    requiredSkills    String[]
-    preferredSkills   String[]
+    requiredSkills    String[]  @default([])
+    preferredSkills   String[]  @default([])
     minSalary         Int?
     maxSalary         Int?
+    status            JobStatus @default(ACTIVE)
     isActive          Boolean @default(true)
     createdAt         DateTime   @default(now())
     updatedAt         DateTime    @updatedAt
@@ -57,7 +65,7 @@ model User {
 
     recruiter   User   @relation(fields: [recruiterId], references: [id])
 
-
+    @@index([recruiterId, status])
   }
 
   

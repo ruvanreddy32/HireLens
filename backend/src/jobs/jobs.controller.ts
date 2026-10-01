@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, FileTypeValidator, FileValidator, Get, MaxFileSizeValidator, Param, ParseFilePipe, Patch, Post, Put, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, FileTypeValidator, FileValidator, Get, MaxFileSizeValidator, Param, ParseFilePipe, Patch, Post, Put, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JobsService } from './jobs.service';
 import { AuthenticatedRequest } from 'src/auth/interfaces/authenticated-request.interface';
 import { ZodValidationPipe } from 'src/common/pipes/zod-validator.pipe';
@@ -61,6 +61,19 @@ export class JobsController {
             params.jobId,
             req.user.userId,
             body
+        );
+    }
+
+    @Delete(':jobId')
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    @Roles('RECRUITER')
+    async deleteJob(
+        @Req() req: AuthenticatedRequest,
+        @Param(new ZodValidationPipe(jobIdSchema)) params: jobIdInput,
+    ) {
+        return this.jobsService.deleteJob(
+            params.jobId,
+            req.user.userId
         );
     }
 
