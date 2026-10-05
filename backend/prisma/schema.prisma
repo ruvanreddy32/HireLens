@@ -1,5 +1,3 @@
-
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,10 +5,12 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
 enum Role {
   JOB_SEEKER
   RECRUITER
 }
+
 enum EmploymentType {
   FULL_TIME
   PART_TIME
@@ -22,16 +22,20 @@ enum WorkMode {
   REMOTE
   HYBRID
 }
+
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  role      Role
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  applications   JobApplication[]
-  jobs Job[]
+  id           String            @id @default(uuid())
+  name         String
+  email        String            @unique
+  password     String
+  role         Role
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  applications JobApplication[]
+  jobs         Job[]
+  resumes      Resume[]
+  notesWritten ApplicationNote[]
+  bookmarks    CandidateBookmark[]
 }
 
 enum JobStatus {
@@ -41,64 +45,124 @@ enum JobStatus {
   CLOSED
 }
 
-  model Job{
-    id       String @id @default(uuid())
-    recruiterId      String 
-    title            String 
-    description      String?   @default("")
-    location          String?   @default("")
-    workMode          WorkMode  @default(HYBRID)
-    employmentType   EmploymentType @default(FULL_TIME)
-    minExperience     Int @default(0)
-    maxExperience     Int?
-    education         String?
-    requiredSkills    String[]  @default([])
-    preferredSkills   String[]  @default([])
-    minSalary         Int?
-    maxSalary         Int?
-    status            JobStatus @default(ACTIVE)
-    isActive          Boolean @default(true)
-    createdAt         DateTime   @default(now())
-    updatedAt         DateTime    @updatedAt
+model Job {
+  id              String         @id @default(uuid())
+  recruiterId     String
+  title           String
+  description     String?        @default("")
+  location        String?        @default("")
+  workMode        WorkMode       @default(HYBRID)
+  employmentType  EmploymentType @default(FULL_TIME)
+  minExperience   Int            @default(0)
+  maxExperience   Int?
+  education       String?
+  requiredSkills  String[]       @default([])
+  preferredSkills String[]       @default([])
+  minSalary       Int?
+  maxSalary       Int?
+  status          JobStatus      @default(ACTIVE)
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-    applications  JobApplication[]
+  applications JobApplication[]
+  recruiter    User             @relation(fields: [recruiterId], references: [id])
 
-    recruiter   User   @relation(fields: [recruiterId], references: [id])
+  @@index([recruiterId, status])
+  @@index([status, isActive, createdAt])
+}
 
-    @@index([recruiterId, status])
-  }
+enum ApplicationStatus {
+  APPLIED
+  PROCESSING
+  REVIEWING
+  INTERVIEWING
+  SHORTLISTED
+  REJECTED
+  WITHDRAWN
+}
 
-  
-  enum ApplicationStatus{
-    APPLIED
-    REVIEWING
-    SHORTLISTED
-    REJECTED
-  }
-  model JobApplication{
-    id    String @id @default(uuid())
-    jobId   String 
-    applicantId String
+model JobApplication {
+  id                String            @id @default(uuid())
+  jobId             String
+  applicantId       String
+  resumeId          String?
+  resumeUrl         String?
+  resumeFileName    String?
 
-    status  ApplicationStatus @default(APPLIED)
+  status            ApplicationStatus @default(APPLIED)
 
-    skillsScore Float @default(0)
-    experienceScore Float @default(0)
-    projectScore Float @default(0)
-    proofOfWorkScore Float @default(0)
+  skillsScore       Float             @default(0)
+  experienceScore   Float             @default(0)
+  projectScore      Float             @default(0)
+  proofOfWorkScore  Float             @default(0)
 
-    isKnockedOut Boolean @default(false)
+  isKnockedOut      Boolean           @default(false)
+  knockedOutReasons String[]          @default([])
 
-    knockedOutReasons String[]
+  parsedInfo        Json?
 
-    parsedInfo Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  job               Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applicant         User              @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  resume            Resume?           @relation(fields: [resumeId], references: [id], onDelete: SetNull)
+  notes             ApplicationNote[]
+  bookmarks         CandidateBookmark[]
 
-    job Job @relation(fields:[jobId],references:[id],onDelete:Cascade)
+  @@unique([jobId, applicantId])
+  @@index([applicantId])
+  @@index([jobId, status])
+}
 
-    applicant User @relation(fields:[applicantId],references:[id],onDelete:Cascade)
+model Resume {
+  id           String           @id @default(uuid())
+  userId       String
+  title        String
+  fileName     String
+  fileUrl      String
+  fileKey      String
+  fileSize     Int              @default(0)
+  targetRole   String?
+  isPrimary    Boolean          @default(false)
+  parseStatus  String           @default("PROCESSING") 
+  parsedData   Json?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
 
-    @@unique([jobId,applicantId])
-  }
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+
+  @@index([userId])
+}
+
+model ApplicationNote {
+  id            String         @id @default(uuid())
+  applicationId String
+  authorId      String
+  authorName    String
+  noteText      String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  author        User           @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([authorId])
+}
+
+model CandidateBookmark {
+  id            String         @id @default(uuid())
+  recruiterId   String
+  applicationId String
+  createdAt     DateTime       @default(now())
+
+  recruiter     User           @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([recruiterId, applicationId])
+  @@index([recruiterId])
+  @@index([applicationId])
+}

@@ -7,8 +7,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StorageService } from 'src/storage/storage.service';
-import { MlService } from 'src/ml/ml.service';
 import 'multer';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 export const MAX_RESUMES = 5;
 
@@ -17,9 +18,9 @@ export class ResumesService {
   private readonly logger = new Logger(ResumesService.name);
 
   constructor(
+    @InjectQueue('resume-processing') private readonly resumeQueue: Queue,
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
-    private readonly ml: MlService,
   ) {}
 
   /**
@@ -45,14 +46,6 @@ export class ResumesService {
     // 2. Save file to storage
     const stored = await this.storage.saveFile(file.buffer, file.originalname);
 
-    // 3. Attempt to parse resume via ML service
-    let parsedData: any = null;
-    try {
-      parsedData = await this.ml.parseResume(file.buffer, file.originalname);
-    } catch (err) {
-      this.logger.warn(`Resume parsing via ML service failed or timed out: ${err.message}`);
-    }
-
     const isFirst = currentCount === 0;
     const shouldBePrimary = isFirst || Boolean(data?.isPrimary);
 
@@ -68,7 +61,7 @@ export class ResumesService {
       data?.title?.trim() ||
       file.originalname.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
 
-    return this.prisma.resume.create({
+    const resume = await this.prisma.resume.create({
       data: {
         userId,
         title,
@@ -78,9 +71,29 @@ export class ResumesService {
         fileSize: stored.fileSize,
         targetRole: data?.targetRole || null,
         isPrimary: shouldBePrimary,
-        parsedData: parsedData?.candidate || parsedData || null,
+        parseStatus: "PROCESSING",
+        parsedData: undefined,
       },
     });
+    await this.resumeQueue.add(
+      'parse-resume',
+      {
+        resumeId:resume.id,
+        fileKey:stored.fileKey,
+        originalName:stored.fileName,
+      },
+      {
+        attempts:3,
+        backoff:{
+          type:'exponential',
+          delay:1000,
+        },
+        removeOnComplete:true,
+        removeOnFail:false,
+      },
+    );
+    this.logger.log(`Resume queued for parsing: ${resume.id}`);
+    return resume;
   }
 
   /**
