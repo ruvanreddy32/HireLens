@@ -191,9 +191,19 @@ export class JobsService {
   }
 
   /**
-   * Apply to Job: Saves PDF to StorageService, evaluates via ML, persists application
+   * Apply to Job:
+   * Supports two paths:
+   * 1. resumeId provided: checks if resume is pre-parsed in Resume Manager -> scoreCandidate (score-only).
+   *    If not yet parsed, fallback to streaming PDF from storage -> parseAndScore.
+   * 2. file provided: uploads fresh PDF to storage -> parseAndScore.
+   * Always persists scores and full evaluation inside parsedInfo.
    */
-  async applyToJob(jobId: string, applicantId: string, file: Express.Multer.File) {
+  async applyToJob(
+    jobId: string,
+    applicantId: string,
+    file?: Express.Multer.File,
+    resumeId?: string,
+  ) {
     const job = await this.prisma.job.findUnique({ where: { id: jobId } });
     if (!job || job.status === 'DRAFT') {
       throw new NotFoundException('Job not found');
@@ -212,32 +222,122 @@ export class JobsService {
       throw new BadRequestException('You have already applied for this job');
     }
 
-    // 1. Save PDF file to storage disk
-    const storedFile = await this.storage.saveFile(file.buffer, file.originalname);
+    let targetResumeId: string | null = null;
+    let resumeUrl: string | null = null;
+    let resumeFileName: string | null = null;
+    let parsedCandidate: any = null;
+    let evaluation: any = null;
+    let fileMeta: Record<string, any> = {};
 
-    // 2. Call ML Service (Python FastAPI) for 4-pillar scoring & parsing
-    let mlResult: any = null;
-    try {
+    if (resumeId) {
+      const resume = await this.prisma.resume.findUnique({
+        where: { id: resumeId },
+      });
+      if (!resume) {
+        throw new NotFoundException('Resume not found');
+      }
+      if (resume.userId !== applicantId) {
+        throw new ForbiddenException('You do not have permission to use this resume');
+      }
+
+      targetResumeId = resume.id;
+      resumeUrl = resume.fileUrl;
+      resumeFileName = resume.fileName;
+      fileMeta = {
+        fileKey: resume.fileKey,
+        fileName: resume.fileName,
+        fileSize: resume.fileSize,
+      };
+
       const jdProfile = this.ml.jobToJdProfile(job);
-      mlResult = await this.ml.parseAndScore(file.buffer, file.originalname, jdProfile);
-    } catch (err) {
-      this.logger.warn(
-        `ML service parseAndScore failed or unavailable: ${err.message}. Saving application with initial baseline.`,
-      );
+
+      if (
+        resume.parsedData &&
+        typeof resume.parsedData === 'object' &&
+        Object.keys(resume.parsedData as object).length > 0
+      ) {
+        // Pre-parsed resume: score-only, avoid re-parsing
+        parsedCandidate = resume.parsedData;
+        try {
+          evaluation = await this.ml.scoreCandidate(parsedCandidate, jdProfile);
+        } catch (err) {
+          this.logger.warn(
+            `ML service scoreCandidate failed or unavailable: ${err.message}. Saving application with initial baseline.`,
+          );
+        }
+      } else {
+        // Resume not yet parsed or missing parsedData: fallback to parseAndScore
+        try {
+          let buffer: Buffer;
+          if (file) {
+            buffer = file.buffer;
+          } else {
+            const stream = await this.storage.getFileStream(resume.fileKey);
+            const chunks: Buffer[] = [];
+            for await (const chunk of stream) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            buffer = Buffer.concat(chunks);
+          }
+          const mlResult = await this.ml.parseAndScore(buffer, resume.fileName, jdProfile);
+          evaluation = mlResult?.evaluation || null;
+          parsedCandidate = mlResult?.parsed_resume || null;
+
+          if (parsedCandidate) {
+            await this.prisma.resume
+              .update({
+                where: { id: resume.id },
+                data: {
+                  parsedData: parsedCandidate,
+                  parseStatus: 'COMPLETED',
+                },
+              })
+              .catch((e) =>
+                this.logger.warn(`Failed to backfill parsedData on resume: ${e.message}`),
+              );
+          }
+        } catch (err) {
+          this.logger.warn(
+            `Fallback parseAndScore for resume ${resume.id} failed: ${err.message}.`,
+          );
+        }
+      }
+    } else if (file) {
+      // 1. Save PDF file to storage disk
+      const storedFile = await this.storage.saveFile(file.buffer, file.originalname);
+      resumeUrl = storedFile.fileUrl;
+      resumeFileName = storedFile.fileName;
+      fileMeta = {
+        fileKey: storedFile.fileKey,
+        fileName: storedFile.fileName,
+        fileSize: storedFile.fileSize,
+      };
+
+      // 2. Call ML Service (Python FastAPI) for 4-pillar scoring & parsing
+      try {
+        const jdProfile = this.ml.jobToJdProfile(job);
+        const mlResult = await this.ml.parseAndScore(file.buffer, file.originalname, jdProfile);
+        evaluation = mlResult?.evaluation || null;
+        parsedCandidate = mlResult?.parsed_resume || null;
+      } catch (err) {
+        this.logger.warn(
+          `ML service parseAndScore failed or unavailable: ${err.message}. Saving application with initial baseline.`,
+        );
+      }
+    } else {
+      throw new BadRequestException('Either a resume file or resumeId is required');
     }
 
-    // 3. Robust object unpacking matching FastAPI /parse-and-score response
-    const evaluation = mlResult?.evaluation || {};
-    const pillarScores = evaluation.pillar_scores || {};
-    const parsedCandidate = mlResult?.parsed_resume || {};
-
+    // 3. Extract evaluation and pillar scores
+    const pillarScores = evaluation?.pillar_scores || {};
     const skillsScore = typeof pillarScores.skills === 'number' ? pillarScores.skills : 0;
-    const experienceScore = typeof pillarScores.experience === 'number' ? pillarScores.experience : 0;
+    const experienceScore =
+      typeof pillarScores.experience === 'number' ? pillarScores.experience : 0;
     const projectScore = typeof pillarScores.projects === 'number' ? pillarScores.projects : 0;
     const proofOfWorkScore =
       typeof pillarScores.proof_of_work === 'number' ? pillarScores.proof_of_work : 0;
-    const isKnockedOut = Boolean(evaluation.is_knocked_out);
-    const knockedOutReasons = Array.isArray(evaluation.knockout_reasons)
+    const isKnockedOut = Boolean(evaluation?.is_knocked_out);
+    const knockedOutReasons = Array.isArray(evaluation?.knockout_reasons)
       ? evaluation.knockout_reasons
       : [];
 
@@ -245,8 +345,9 @@ export class JobsService {
       data: {
         jobId,
         applicantId,
-        resumeUrl: storedFile.fileUrl,
-        resumeFileName: storedFile.fileName,
+        resumeId: targetResumeId,
+        resumeUrl,
+        resumeFileName,
         skillsScore,
         experienceScore,
         projectScore,
@@ -254,10 +355,9 @@ export class JobsService {
         isKnockedOut,
         knockedOutReasons,
         parsedInfo: {
-          ...parsedCandidate,
-          fileKey: storedFile.fileKey,
-          fileName: storedFile.fileName,
-          fileSize: storedFile.fileSize,
+          ...(parsedCandidate || {}),
+          evaluation: evaluation || null,
+          ...fileMeta,
         },
       },
     });

@@ -143,15 +143,16 @@ export class JobsController {
             fileType: 'application/pdf',
           }),
         ],
-        fileIsRequired: true,
+        fileIsRequired: false,
       }),
     )
-    file: Express.Multer.File,
+    file?: Express.Multer.File,
+    @Body('resumeId') resumeId?: string,
   ) {
-    if (!file) {
-      throw new BadRequestException('Resume file is required');
+    if (!file && !resumeId) {
+      throw new BadRequestException('Either a resume file or resumeId is required');
     }
-    return this.jobsService.applyToJob(params.jobId, req.user.userId, file);
+    return this.jobsService.applyToJob(params.jobId, req.user.userId, file, resumeId);
   }
 
   @Get(':jobId/applications')
