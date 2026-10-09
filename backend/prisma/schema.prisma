@@ -9,6 +9,7 @@ datasource db {
 enum Role {
   JOB_SEEKER
   RECRUITER
+  ADMIN
 }
 
 enum EmploymentType {
