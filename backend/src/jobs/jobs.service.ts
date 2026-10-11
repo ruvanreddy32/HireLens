@@ -12,6 +12,8 @@ import { updateJobInput } from './schema/update-job.schema';
 import { MlService } from 'src/ml/ml.service';
 import 'multer';
 import { ApplicationStatus } from '@prisma/client';
+import { Queue } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
 
 @Injectable()
 export class JobsService {
@@ -21,6 +23,7 @@ export class JobsService {
     private readonly prisma: PrismaService,
     private readonly ml: MlService,
     private readonly storage: StorageService,
+    @InjectQueue('resume-processing') private readonly resumeQueue:Queue,
   ) {}
 
   async createJob(recruiterId: string, data: createJobInput) {
@@ -225,9 +228,7 @@ export class JobsService {
     let targetResumeId: string | null = null;
     let resumeUrl: string | null = null;
     let resumeFileName: string | null = null;
-    let parsedCandidate: any = null;
-    let evaluation: any = null;
-    let fileMeta: Record<string, any> = {};
+    let targetFileKey: string | null = null;
 
     if (resumeId) {
       const resume = await this.prisma.resume.findUnique({
@@ -243,124 +244,62 @@ export class JobsService {
       targetResumeId = resume.id;
       resumeUrl = resume.fileUrl;
       resumeFileName = resume.fileName;
-      fileMeta = {
-        fileKey: resume.fileKey,
-        fileName: resume.fileName,
-        fileSize: resume.fileSize,
-      };
-
-      const jdProfile = this.ml.jobToJdProfile(job);
-
-      if (
-        resume.parsedData &&
-        typeof resume.parsedData === 'object' &&
-        Object.keys(resume.parsedData as object).length > 0
-      ) {
-        // Pre-parsed resume: score-only, avoid re-parsing
-        parsedCandidate = resume.parsedData;
-        try {
-          evaluation = await this.ml.scoreCandidate(parsedCandidate, jdProfile);
-        } catch (err) {
-          this.logger.warn(
-            `ML service scoreCandidate failed or unavailable: ${err.message}. Saving application with initial baseline.`,
-          );
-        }
-      } else {
-        // Resume not yet parsed or missing parsedData: fallback to parseAndScore
-        try {
-          let buffer: Buffer;
-          if (file) {
-            buffer = file.buffer;
-          } else {
-            const stream = await this.storage.getFileStream(resume.fileKey);
-            const chunks: Buffer[] = [];
-            for await (const chunk of stream) {
-              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-            }
-            buffer = Buffer.concat(chunks);
-          }
-          const mlResult = await this.ml.parseAndScore(buffer, resume.fileName, jdProfile);
-          evaluation = mlResult?.evaluation || null;
-          parsedCandidate = mlResult?.parsed_resume || null;
-
-          if (parsedCandidate) {
-            await this.prisma.resume
-              .update({
-                where: { id: resume.id },
-                data: {
-                  parsedData: parsedCandidate,
-                  parseStatus: 'COMPLETED',
-                },
-              })
-              .catch((e) =>
-                this.logger.warn(`Failed to backfill parsedData on resume: ${e.message}`),
-              );
-          }
-        } catch (err) {
-          this.logger.warn(
-            `Fallback parseAndScore for resume ${resume.id} failed: ${err.message}.`,
-          );
-        }
-      }
+      targetFileKey = resume.fileKey;
     } else if (file) {
-      // 1. Save PDF file to storage disk
-      const storedFile = await this.storage.saveFile(file.buffer, file.originalname);
-      resumeUrl = storedFile.fileUrl;
-      resumeFileName = storedFile.fileName;
-      fileMeta = {
-        fileKey: storedFile.fileKey,
-        fileName: storedFile.fileName,
-        fileSize: storedFile.fileSize,
-      };
-
-      // 2. Call ML Service (Python FastAPI) for 4-pillar scoring & parsing
-      try {
-        const jdProfile = this.ml.jobToJdProfile(job);
-        const mlResult = await this.ml.parseAndScore(file.buffer, file.originalname, jdProfile);
-        evaluation = mlResult?.evaluation || null;
-        parsedCandidate = mlResult?.parsed_resume || null;
-      } catch (err) {
-        this.logger.warn(
-          `ML service parseAndScore failed or unavailable: ${err.message}. Saving application with initial baseline.`,
-        );
-      }
+      const stored = await this.storage.saveFile(file.buffer, file.originalname);
+      resumeUrl = stored.fileUrl;
+      resumeFileName = stored.fileName;
+      targetFileKey = stored.fileKey;
     } else {
       throw new BadRequestException('Either a resume file or resumeId is required');
     }
 
-    // 3. Extract evaluation and pillar scores
-    const pillarScores = evaluation?.pillar_scores || {};
-    const skillsScore = typeof pillarScores.skills === 'number' ? pillarScores.skills : 0;
-    const experienceScore =
-      typeof pillarScores.experience === 'number' ? pillarScores.experience : 0;
-    const projectScore = typeof pillarScores.projects === 'number' ? pillarScores.projects : 0;
-    const proofOfWorkScore =
-      typeof pillarScores.proof_of_work === 'number' ? pillarScores.proof_of_work : 0;
-    const isKnockedOut = Boolean(evaluation?.is_knocked_out);
-    const knockedOutReasons = Array.isArray(evaluation?.knockout_reasons)
-      ? evaluation.knockout_reasons
-      : [];
-
-    return this.prisma.jobApplication.create({
+    // 1. Create application record immediately with status PROCESSING
+    const application = await this.prisma.jobApplication.create({
       data: {
         jobId,
         applicantId,
         resumeId: targetResumeId,
         resumeUrl,
         resumeFileName,
-        skillsScore,
-        experienceScore,
-        projectScore,
-        proofOfWorkScore,
-        isKnockedOut,
-        knockedOutReasons,
+        status: ApplicationStatus.PROCESSING,
+        skillsScore: 0,
+        experienceScore: 0,
+        projectScore: 0,
+        proofOfWorkScore: 0,
+        isKnockedOut: false,
+        knockedOutReasons: [],
         parsedInfo: {
-          ...(parsedCandidate || {}),
-          evaluation: evaluation || null,
-          ...fileMeta,
+          fileKey: targetFileKey,
+          fileName: resumeFileName,
         },
       },
     });
+
+    // 2. Queue background evaluation via BullMQ
+    await this.resumeQueue.add(
+      'score-application',
+      {
+        applicationId: application.id,
+        jobId,
+        applicantId,
+        resumeId: targetResumeId,
+        fileKey: targetFileKey,
+        fileName: resumeFileName,
+      },
+      {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
+
+    this.logger.log(`Application ${application.id} queued for background evaluation`);
+    return application;
   }
 
   /**
