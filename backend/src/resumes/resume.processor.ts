@@ -31,7 +31,13 @@ export class ResumeProcessor extends WorkerHost {
     const buffer = Buffer.concat(chunks);
     // 2. Call ML Service
     const parsed = await this.ml.parseResume(buffer, originalName);
-    const parsedData = parsed?.candidate || parsed || null;
+
+    if (!parsed || parsed.status == 'error') {
+      const errorMsg = parsed?.message || 'ML service returned an empty or invalid parse response';
+      throw new Error(`Parse failed for resume ${resumeId}:${errorMsg}`);
+    }
+
+    const parsedData = parsed?.candidate || parsed  ;
     // 3. Update database record with parsed data
     await this.prisma.resume.update({
       where: { id: resumeId },
