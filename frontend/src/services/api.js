@@ -124,10 +124,26 @@ export const api = {
     }).catch(() => null)
   },
 
-  applyToJob: async (jobId, file) => {
+  applyToJob: async (jobId, payload) => {
     const token = localStorage.getItem('hirelens_token')
     const formData = new FormData()
-    formData.append('resume', file)
+
+    let file = null
+    let resumeId = null
+
+    if (payload instanceof File || (payload && typeof payload.name === 'string' && payload.size !== undefined)) {
+      file = payload
+    } else if (payload && typeof payload === 'object') {
+      file = payload.file
+      resumeId = payload.resumeId
+    }
+
+    if (resumeId) {
+      formData.append('resumeId', resumeId)
+    }
+    if (file) {
+      formData.append('resume', file)
+    }
 
     const response = await fetch(`http://localhost:3000/jobs/${jobId}/apply`, {
       method: 'POST',
