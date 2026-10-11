@@ -1,27 +1,23 @@
-# ============================================================================
-# experience_parser.py — Structured Experience Entry Extractor
-# Takes the flat `experience_block_raw` string produced by section_segmenter 
-# and returns a list of structured job-entry dicts.
+"""Structured experience entry extractor from raw experience text."""
 
-# ============================================================================
-
+import logging
 import re
-import math
 from datetime import datetime
 from typing import Optional
 
 try:
     from dateutil import parser as dateutil_parser
 except ImportError:
-    dateutil_parser = None  # graceful fallback — we have manual regex parsing
+    dateutil_parser = None
 
-from backend.ml.resources.experience_patterns import (
+logger = logging.getLogger(__name__)
+
+from ml.resources.experience_patterns import (
     ROLE_KEYWORDS as _ROLE_KEYWORDS,
     PRESENT_TOKENS as _PRESENT_TOKENS,
     MONTH_MAP as _MONTH_MAP,
     DATE_RANGE_RE as _DATE_RANGE_RE,
     HAS_DATE_RANGE_RE as _HAS_DATE_RANGE_RE,
-    ROLE_COMPANY_SEP_RE as _ROLE_COMPANY_SEP_RE,
     BULLET_RE as _BULLET_RE,
     BLANK_RE as _BLANK_RE,
     KNOWN_CITIES as _KNOWN_CITIES,
@@ -30,13 +26,10 @@ from backend.ml.resources.experience_patterns import (
     LOCATION_STANDALONE_RE as _LOCATION_STANDALONE_RE,
 )
 
-
-# ---------------------------------------------------------------------------
 # Date parsing helpers
-# ---------------------------------------------------------------------------
 
 def _parse_single_date(raw: str) -> Optional[datetime]:
-   
+    """Parse a date string into a datetime object."""
     if not raw:
         return None
 
@@ -99,9 +92,7 @@ def _compute_duration_months(start: Optional[datetime], end: Optional[datetime])
     return max(month_diff, 1) if month_diff >= 0 else 0
 
 
-# ---------------------------------------------------------------------------
 # Line-level classification helpers
-# ---------------------------------------------------------------------------
 
 def _has_role_keyword(line: str) -> bool:
     """Check if a line contains a common job-title keyword."""
@@ -110,16 +101,8 @@ def _has_role_keyword(line: str) -> bool:
 
 
 def _has_separator(line: str) -> bool:
-    """Check if a line contains a role/company separator (|, @, or comma
-    that sits between two text segments)."""
+    """Check if a line contains a role/company separator."""
     return bool(re.search(r"[|@]", line)) or bool(re.search(r"\w\s*,\s*\w", line))
-
-
-def _is_entry_header(line: str) -> bool:
-    
-    if not _HAS_DATE_RANGE_RE.search(line):
-        return False
-    return _has_role_keyword(line) or _has_separator(line)
 
 
 def _is_bullet(line: str) -> bool:
@@ -132,19 +115,14 @@ def _clean_bullet(line: str) -> str:
     return _BULLET_RE.sub("", line).strip()
 
 
-
 def _is_known_city(text: str) -> bool:
-    """Check if text is a recognized single city name or phrase."""
+    """Check if text is a recognized city name or phrase."""
     lowered = text.strip().lower()
-    if lowered in _KNOWN_CITIES:
-        return True
-    if lowered in _KNOWN_CITY_PHRASES:
-        return True
-    return False
+    return lowered in _KNOWN_CITIES or lowered in _KNOWN_CITY_PHRASES
 
 
 def _extract_dates_from_line(line: str) -> tuple:
-    
+    """Extract raw and parsed start/end dates from a line."""
     m = _DATE_RANGE_RE.search(line)
     if not m:
         return None, None, None, None
@@ -156,19 +134,18 @@ def _extract_dates_from_line(line: str) -> tuple:
 
 
 def _strip_dates(line: str) -> str:
-    """Remove the date-range portion from a line so we can parse the rest."""
+    """Remove date-range string from a line."""
     return _DATE_RANGE_RE.sub("", line).strip()
 
 
 def _strip_location_inline(line: str) -> tuple:
-    
+    """Extract inline location from a line and return (cleaned_line, location)."""
     m = _LOCATION_INLINE_RE.search(line)
     if m:
         location = m.group(1).strip()
         cleaned = line[:m.start()] + line[m.end():]
         return cleaned.strip().rstrip("|-,").strip(), location
 
-    # Fallback: check if the last comma-segment is a known city name
     if "," in line:
         last_seg = line.rsplit(",", 1)[1].strip()
         if _is_known_city(last_seg):
@@ -179,12 +156,11 @@ def _strip_location_inline(line: str) -> tuple:
 
 
 def _strip_location_standalone(line: str) -> tuple:
-    
+    """Extract standalone location from a line."""
     m = _LOCATION_STANDALONE_RE.match(line.strip())
     if m:
         return "", m.group(1).strip()
 
-    # Check known cities/phrases for standalone lines
     stripped = line.strip()
     if _is_known_city(stripped):
         return "", stripped
@@ -193,26 +169,23 @@ def _strip_location_standalone(line: str) -> tuple:
 
 
 def _parse_title_company(text: str) -> tuple:
-    
+    """Extract title and company from a header segment."""
     if not text or not text.strip():
         return None, None
 
     text = text.strip().rstrip("|-@,").strip()
 
-    # Try splitting on explicit separators: |, @
+    # Try explicit separators: |, @
     for sep in ("|", "@"):
         if sep in text:
             parts = [p.strip() for p in text.split(sep, 1)]
             if len(parts) == 2 and parts[0] and parts[1]:
                 return parts[0], parts[1]
 
-    # Handle comma-separated segments.
-    # Split on ALL commas and classify each segment to find the title and company.
+    # Handle comma-separated segments
     if "," in text:
         segments = [s.strip() for s in text.split(",") if s.strip()]
-
         if len(segments) == 2:
-            # Simple case: "Backend Developer, Razorpay"
             left, right = segments[0], segments[1]
             if _has_role_keyword(left):
                 return left, right
@@ -221,70 +194,88 @@ def _parse_title_company(text: str) -> tuple:
             return left, right
 
         if len(segments) >= 3:
-            # Multi-comma: "Software Engineer, BigCorp, New York"
-            # Strategy: the segment with a role keyword is the title,
-            # the next segment is the company, remaining are discarded
-            # (likely location that wasn't stripped earlier).
             for i, seg in enumerate(segments):
                 if _has_role_keyword(seg):
                     company = segments[i + 1] if i + 1 < len(segments) else None
                     return seg, company
-            # No role keyword found — treat first as title, second as company
             return segments[0], segments[1]
 
-    # No separator — entire text is the title, company unknown
     return text if text else None, None
 
 
-# ---------------------------------------------------------------------------
-# Main entry parser
-# ---------------------------------------------------------------------------
+# LLM experience entry parser
 
-def parse_experience_entries(experience_block_raw: str) -> list[dict]:
-   
-    if not experience_block_raw or not experience_block_raw.strip():
+def _parse_experience_from_llm(llm_data: dict) -> list[dict]:
+    """Convert batch LLM experience output into validated entry dictionaries."""
+    raw_entries = llm_data.get("experience", [])
+    if not isinstance(raw_entries, list):
         return []
 
-    lines = experience_block_raw.split("\n")
     entries: list[dict] = []
-
-    # ---- Phase 1: Split into raw entry blocks using header detection -----
-    # Each block = [header_line(s), ...bullet/body lines]
-    entry_blocks: list[list[str]] = []
-    current_block: list[str] = []
-
-    for line in lines:
-        if _BLANK_RE.match(line):
-            # Blank lines within a block are fine; skip leading blanks
-            if current_block:
-                current_block.append(line)
+    for item in raw_entries:
+        if not isinstance(item, dict):
             continue
 
-        if _is_entry_header(line):
-            # Flush previous block
-            if current_block:
-                entry_blocks.append(current_block)
-            current_block = [line]
-        else:
-            # Continuation of current block — could be a second header line
-            # (company on its own line), a bullet, or body text.
-            current_block.append(line)
+        title = item.get("title")
+        company = item.get("company")
+        start_date_str = item.get("start_date")
+        end_date_str = item.get("end_date")
+        if not end_date_str and item.get("is_current"):
+            end_date_str = "Present"
 
-    # Flush the last block
-    if current_block:
-        entry_blocks.append(current_block)
+        start_dt = _parse_single_date(start_date_str) if start_date_str else None
+        end_dt = _parse_single_date(end_date_str) if end_date_str else None
+        duration = _compute_duration_months(start_dt, end_dt)
 
-    # Handle edge case: no entry headers detected at all.
-    # Try a more aggressive split — look for ANY line with a date range.
-    if not entry_blocks:
-        # Re-scan with date-range-only heuristic
-        current_block = []
+        bullets = item.get("responsibilities") or item.get("bullets") or []
+        if isinstance(bullets, str):
+            bullets = [bullets]
+        elif not isinstance(bullets, list):
+            bullets = []
+
+        mentioned_skills = item.get("mentioned_skills", [])
+        if isinstance(mentioned_skills, str):
+            mentioned_skills = [mentioned_skills]
+        elif not isinstance(mentioned_skills, list):
+            mentioned_skills = []
+
+        location = item.get("location")
+
+        if not title and not company and not start_date_str and not bullets:
+            continue
+
+        entries.append({
+            "title":            title or None,
+            "company":          company or None,
+            "start_date":       start_date_str or None,
+            "end_date":         end_date_str or None,
+            "duration_months":  duration,
+            "location":         location or None,
+            "bullets":          bullets,
+            "mentioned_skills": mentioned_skills,
+        })
+
+    return entries
+
+
+# Entry block boundary detection
+
+def _split_into_entry_blocks(lines: list[str]) -> list[list[str]]:
+    """Split lines of an experience section into per-job entry blocks."""
+    date_indices = [
+        i for i, line in enumerate(lines)
+        if _HAS_DATE_RANGE_RE.search(line)
+    ]
+
+    if not date_indices:
+        entry_blocks: list[list[str]] = []
+        current_block: list[str] = []
         for line in lines:
             if _BLANK_RE.match(line):
                 if current_block:
                     current_block.append(line)
                 continue
-            if _HAS_DATE_RANGE_RE.search(line):
+            if (_has_role_keyword(line) or _has_separator(line)) and not _is_bullet(line):
                 if current_block:
                     entry_blocks.append(current_block)
                 current_block = [line]
@@ -292,8 +283,48 @@ def parse_experience_entries(experience_block_raw: str) -> list[dict]:
                 current_block.append(line)
         if current_block:
             entry_blocks.append(current_block)
+        return entry_blocks
 
-    # ---- Phase 2: Parse each block into a structured entry ---------------
+    start_indices: list[int] = []
+    for d_idx in date_indices:
+        prev_limit = start_indices[-1] if start_indices else 0
+        cand_start = d_idx
+        non_blank_seen = 0
+        for j in range(d_idx - 1, prev_limit - 1, -1):
+            line_str = lines[j].strip()
+            if not line_str:
+                continue
+            if _is_bullet(line_str):
+                break
+            cand_start = j
+            non_blank_seen += 1
+            if non_blank_seen >= 3:
+                break
+        start_indices.append(cand_start)
+
+    blocks: list[list[str]] = []
+    for k in range(len(start_indices)):
+        start = start_indices[k]
+        end = start_indices[k + 1] if k + 1 < len(start_indices) else len(lines)
+        block = lines[start:end]
+        while block and not block[0].strip():
+            block.pop(0)
+        while block and not block[-1].strip():
+            block.pop()
+        if block:
+            blocks.append(block)
+
+    return blocks
+
+
+# Main entry parser
+
+def _parse_heuristic_experience_entries(experience_block_raw: str) -> list[dict]:
+    """Parse raw experience text into structured job entry dicts using heuristics."""
+    lines = experience_block_raw.split("\n")
+    entries: list[dict] = []
+    entry_blocks = _split_into_entry_blocks(lines)
+
     for block in entry_blocks:
         entry = _parse_entry_block(block)
         if entry:
@@ -302,11 +333,37 @@ def parse_experience_entries(experience_block_raw: str) -> list[dict]:
     return entries
 
 
-def _parse_entry_block(block: list[str]) -> Optional[dict]:
-    """Parse a single entry block (header line(s) + bullets) into a dict.
+def parse_experience_entries(
+    experience_block_raw: str,
+    llm_data: Optional[dict] = None,
+) -> list[dict]:
+    """Parse raw experience text into structured job entry dicts.
 
-    Returns None if the block is entirely unparseable.
+    Uses batch LLM data if provided/available; falls back to regex heuristics.
     """
+    if not experience_block_raw or not experience_block_raw.strip():
+        return []
+
+    # 1. Attempt batch LLM parsing if data was pre-extracted or can be fetched
+    if llm_data is None:
+        try:
+            from ml.parsing.llm_field_extractor import extract_experience_fields
+            llm_data = extract_experience_fields(experience_block_raw)
+        except Exception as exc:
+            logger.debug("parse_experience_entries: standalone LLM call failed/skipped: %s", exc)
+            llm_data = None
+
+    if llm_data and not llm_data.get("extraction_failed"):
+        llm_entries = _parse_experience_from_llm(llm_data)
+        if llm_entries:
+            return llm_entries
+
+    # 2. Heuristic fallback
+    return _parse_heuristic_experience_entries(experience_block_raw)
+
+
+def _parse_entry_block(block: list[str]) -> Optional[dict]:
+    """Parse a single entry block (header + bullets) into a dict."""
     if not block:
         return None
 
@@ -329,10 +386,7 @@ def _parse_entry_block(block: list[str]) -> Optional[dict]:
             header_line_idx = i
             break
 
-    # --- Build the "header text" by combining non-bullet, non-blank lines
-    # up to (and including) the date line, plus possibly the next line if
-    # it looks like a company name or location (short, non-bullet, no date,
-    # not a full sentence). ---
+    # Collect header lines up to the date line
     header_lines = []
     body_start = 0
 
@@ -451,25 +505,26 @@ def _parse_entry_block(block: list[str]) -> Optional[dict]:
     if title is None:
         title, company = _parse_title_company(combined_header)
 
-    # --- Compute duration ---
+    # Compute duration from parsed dates
     duration = _compute_duration_months(start_dt, end_dt)
 
-    # --- If we got absolutely nothing useful, skip this entry ---
     if not title and not company and not start_date_str and not bullets:
         return None
 
     return {
-        "title": title or None,
-        "company": company or None,
-        "start_date": start_date_str or None,
-        "end_date": end_date_str or None,
-        "duration_months": duration,
-        "location": location or None,
-        "bullets": bullets,
+        "title":             title or None,
+        "company":           company or None,
+        "start_date":        start_date_str or None,
+        "end_date":          end_date_str or None,
+        "duration_months":   duration,
+        "location":          location or None,
+        "bullets":           bullets,
+        "mentioned_skills":  [],
     }
 
 
 def compute_total_experience_months(entries: list[dict]) -> int:
+    """Compute total non-overlapping experience months across entries."""
     if not entries:
         return 0
 
