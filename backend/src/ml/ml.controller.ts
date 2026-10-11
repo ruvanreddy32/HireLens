@@ -6,10 +6,14 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MlService } from './ml.service';
 import { JobDescriptionProfile, WeightsConfig } from './ml.types';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
 
 @Controller('ml')
 export class MlController {
@@ -21,11 +25,13 @@ export class MlController {
   }
 
   @Get('presets')
+  @UseGuards(JwtAuthGuard)
   async getPresets() {
     return this.mlService.getPresets();
   }
 
   @Post('parse-resume')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async parseResume(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
@@ -35,6 +41,8 @@ export class MlController {
   }
 
   @Post('score')
+  @UseGuards(JwtAuthGuard,RolesGuard)
+  @Roles('RECRUITER','ADMIN')
   async scoreCandidate(
     @Body('candidate_data') candidateData: any,
     @Body('jd_profile') jdProfile: JobDescriptionProfile,
@@ -47,6 +55,8 @@ export class MlController {
   }
 
   @Post('parse-and-score')
+  @UseGuards(JwtAuthGuard,RolesGuard)
+  @Roles('RECRUITER','ADMIN')
   @UseInterceptors(FileInterceptor('file'))
   async parseAndScore(
     @UploadedFile() file: Express.Multer.File,
@@ -77,6 +87,8 @@ export class MlController {
   }
 
   @Post('rank')
+  @UseGuards(JwtAuthGuard,RolesGuard)
+  @Roles('RECRUITER','ADMIN') 
   async rankCohort(
     @Body('candidates') candidates: any[],
     @Body('jd_profile') jdProfile: JobDescriptionProfile,
