@@ -14,6 +14,7 @@ export const registerSchema=z.object({
     .min(8,'Password must contain atleast 8 characters'),
 
     role: z.enum(['JOB_SEEKER','RECRUITER']),
+    companyName: z.string().optional(),
 });
 
 export type registerInput = z.infer<typeof registerSchema>;

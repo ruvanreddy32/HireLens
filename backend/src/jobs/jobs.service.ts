@@ -211,11 +211,11 @@ export class JobsService {
     if (!job || job.status === 'DRAFT') {
       throw new NotFoundException('Job not found');
     }
-    if (job.status === 'PAUSED' || !job.isActive) {
-      throw new BadRequestException('Applications for this job are currently paused');
-    }
     if (job.status === 'CLOSED') {
       throw new BadRequestException('This job is closed and no longer accepting applications');
+    }
+    if (job.status === 'PAUSED' || !job.isActive) {
+      throw new BadRequestException('Applications for this job are currently paused');
     }
 
     const existingApplication = await this.prisma.jobApplication.findFirst({
