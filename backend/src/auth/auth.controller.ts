@@ -17,16 +17,16 @@ import { AuthenticatedRequest } from './interfaces/authenticated-request.interfa
 
 @Controller('auth')
 export class AuthController {
-    constructor(
-        private readonly authService:AuthService
-    ){}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-    async register(@Body(new ZodValidationPipe(registerSchema)) body:registerInput){
+  async register(
+    @Body(new ZodValidationPipe(registerSchema)) body: registerInput,
+  ) {
     return this.authService.register(body);
   }
   @Post('login')
-    async login(@Body(new ZodValidationPipe(loginSchema)) body:loginInput){
+  async login(@Body(new ZodValidationPipe(loginSchema)) body: loginInput) {
     return this.authService.login(body);
   }
 

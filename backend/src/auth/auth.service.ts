@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { registerInput } from 'src/auth/schemas/register.schema';
 import * as bcrypt from 'bcrypt';
@@ -14,7 +18,11 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  private async generateTokens(user: { id: string; email: string; role: string }) {
+  private async generateTokens(user: {
+    id: string;
+    email: string;
+    role: string;
+  }) {
     const payload = {
       sub: user.id,
       email: user.email,
@@ -94,7 +102,10 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const passMatch = await bcrypt.compare(data.password, existingUser.password);
+    const passMatch = await bcrypt.compare(
+      data.password,
+      existingUser.password,
+    );
     if (!passMatch) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -135,7 +146,9 @@ export class AuthService {
     });
 
     if (!user || !user.refreshToken) {
-      throw new UnauthorizedException('Access denied: Session expired or logged out');
+      throw new UnauthorizedException(
+        'Access denied: Session expired or logged out',
+      );
     }
 
     const isMatch = await bcrypt.compare(refreshToken, user.refreshToken);

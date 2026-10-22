@@ -150,9 +150,16 @@ export class JobsController {
     @Body('resumeId') resumeId?: string,
   ) {
     if (!file && !resumeId) {
-      throw new BadRequestException('Either a resume file or resumeId is required');
+      throw new BadRequestException(
+        'Either a resume file or resumeId is required',
+      );
     }
-    return this.jobsService.applyToJob(params.jobId, req.user.userId, file, resumeId);
+    return this.jobsService.applyToJob(
+      params.jobId,
+      req.user.userId,
+      file,
+      resumeId,
+    );
   }
 
   @Get(':jobId/applications')
@@ -162,7 +169,10 @@ export class JobsController {
     @Req() req: AuthenticatedRequest,
     @Param(new ZodValidationPipe(jobIdSchema)) params: jobIdInput,
   ) {
-    return await this.jobsService.getJobApplications(params.jobId, req.user.userId);
+    return await this.jobsService.getJobApplications(
+      params.jobId,
+      req.user.userId,
+    );
   }
 
   @Get(':jobId/applications/:applicationId')

@@ -5,4 +5,3 @@ export const updateJobSchema = createJob.partial();
 export const updateJob = updateJobSchema;
 
 export type updateJobInput = z.infer<typeof updateJobSchema>;
-

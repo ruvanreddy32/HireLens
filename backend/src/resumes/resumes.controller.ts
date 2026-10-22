@@ -53,10 +53,6 @@ export class ResumesController {
     @Body('targetRole') targetRole?: string,
     @Body('isPrimary') isPrimary?: string | boolean,
   ) {
-    if (!file) {
-      throw new BadRequestException('PDF file is required');
-    }
-
     const primaryFlag =
       isPrimary === true || isPrimary === 'true' || isPrimary === '1';
 

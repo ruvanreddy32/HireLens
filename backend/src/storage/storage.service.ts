@@ -29,7 +29,7 @@ export class StorageService {
   private readonly bucket: string | null = null;
   private readonly region: string;
   public readonly isS3Enabled: boolean = false;
-  
+
   //inspects the .env file and configures s3 or local storage accordingly
   constructor() {
     this.uploadDir = path.resolve(process.cwd(), 'uploads', 'resumes');
@@ -123,7 +123,9 @@ export class StorageService {
       );
 
       const fileUrl = `https://${this.bucket}.s3.${this.region}.amazonaws.com/${s3Key}`;
-      this.logger.log(`Uploaded resume to S3: s3://${this.bucket}/${s3Key} (${fileSize} bytes)`);
+      this.logger.log(
+        `Uploaded resume to S3: s3://${this.bucket}/${s3Key} (${fileSize} bytes)`,
+      );
 
       return {
         fileKey: s3Key,
@@ -141,7 +143,9 @@ export class StorageService {
     await fs.promises.writeFile(filePath, buffer);
     const fileUrl = `/uploads/resumes/${rawFileName}`;
 
-    this.logger.log(`Saved resume to local disk: ${rawFileName} (${fileSize} bytes)`);
+    this.logger.log(
+      `Saved resume to local disk: ${rawFileName} (${fileSize} bytes)`,
+    );
 
     return {
       fileKey: rawFileName,
@@ -156,7 +160,10 @@ export class StorageService {
   /**
    * Generate an AWS S3 pre-signed URL for secure, temporary document viewing (default: 15 mins)
    */
-  async getPresignedViewUrl(fileKey: string, expiresInSeconds: number = 900): Promise<string> {
+  async getPresignedViewUrl(
+    fileKey: string,
+    expiresInSeconds: number = 900,
+  ): Promise<string> {
     if (this.isS3Enabled && this.s3Client && this.bucket) {
       const command = new GetObjectCommand({
         Bucket: this.bucket,
@@ -165,7 +172,9 @@ export class StorageService {
         ResponseContentDisposition: 'inline',
       });
 
-      return getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+      return getSignedUrl(this.s3Client, command, {
+        expiresIn: expiresInSeconds,
+      });
     }
 
     // Local fallback: relative URL
@@ -221,7 +230,9 @@ export class StorageService {
       );
 
       if (!response.Body) {
-        throw new NotFoundException(`Resume object body not found in S3: ${fileKey}`);
+        throw new NotFoundException(
+          `Resume object body not found in S3: ${fileKey}`,
+        );
       }
 
       return response.Body as Readable;

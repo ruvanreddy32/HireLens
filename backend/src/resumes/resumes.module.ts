@@ -9,13 +9,15 @@ import { AdminDlqController } from './admin-dlq.controller';
 import { DlqService } from './dlq.service';
 
 @Module({
-  imports: [BullModule.registerQueue(
-    {name:'resume-processing'},
-    {name:'resume-processing-dlq'}
-  ),
-    MlModule],
-  controllers: [ResumesController,AdminDlqController],
-  providers: [ResumesService, PrismaService,ResumeProcessor,DlqService],
-  exports: [ResumesService,DlqService], 
+  imports: [
+    BullModule.registerQueue(
+      { name: 'resume-processing' },
+      { name: 'resume-processing-dlq' },
+    ),
+    MlModule,
+  ],
+  controllers: [ResumesController, AdminDlqController],
+  providers: [ResumesService, PrismaService, ResumeProcessor, DlqService],
+  exports: [ResumesService, DlqService],
 })
 export class ResumesModule {}

@@ -37,15 +37,3 @@ export interface CandidateScoreResponse {
   pillar_details: Record<string, any>;
   executive_summary: string;
 }
-
-export interface PresetDefinition {
-  label: string;
-  weights: WeightsConfig;
-  description: string;
-}
-
-export interface PresetsResponse {
-  status: string;
-  presets: Record<string, PresetDefinition>;
-  match_tiers: Array<{ tier: string; min_score: number; badge_color: string }>;
-}

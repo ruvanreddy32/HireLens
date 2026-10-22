@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StorageService } from 'src/storage/storage.service';
-import 'multer';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 
@@ -71,25 +70,25 @@ export class ResumesService {
         fileSize: stored.fileSize,
         targetRole: data?.targetRole || null,
         isPrimary: shouldBePrimary,
-        parseStatus: "PROCESSING",
+        parseStatus: 'PROCESSING',
         parsedData: undefined,
       },
     });
     await this.resumeQueue.add(
       'parse-resume',
       {
-        resumeId:resume.id,
-        fileKey:stored.fileKey,
-        originalName:stored.fileName,
+        resumeId: resume.id,
+        fileKey: stored.fileKey,
+        originalName: stored.fileName,
       },
       {
-        attempts:3,
-        backoff:{
-          type:'exponential',
-          delay:1000,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
         },
-        removeOnComplete:true,
-        removeOnFail:false,
+        removeOnComplete: true,
+        removeOnFail: false,
       },
     );
     this.logger.log(`Resume queued for parsing: ${resume.id}`);
@@ -110,7 +109,9 @@ export class ResumesService {
    * Set a resume as primary
    */
   async setPrimaryResume(resumeId: string, userId: string) {
-    const resume = await this.prisma.resume.findUnique({ where: { id: resumeId } });
+    const resume = await this.prisma.resume.findUnique({
+      where: { id: resumeId },
+    });
     if (!resume) {
       throw new NotFoundException('Resume not found');
     }
@@ -134,7 +135,9 @@ export class ResumesService {
    * Delete a resume
    */
   async deleteResume(resumeId: string, userId: string) {
-    const resume = await this.prisma.resume.findUnique({ where: { id: resumeId } });
+    const resume = await this.prisma.resume.findUnique({
+      where: { id: resumeId },
+    });
     if (!resume) {
       throw new NotFoundException('Resume not found');
     }
@@ -170,7 +173,9 @@ export class ResumesService {
    * Stream or generate pre-signed URL for resume PDF
    */
   async getResumeFile(resumeId: string, userId: string) {
-    const resume = await this.prisma.resume.findUnique({ where: { id: resumeId } });
+    const resume = await this.prisma.resume.findUnique({
+      where: { id: resumeId },
+    });
     if (!resume) {
       throw new NotFoundException('Resume not found');
     }
@@ -183,7 +188,9 @@ export class ResumesService {
     }
 
     if (this.storage.isS3Enabled) {
-      const presignedUrl = await this.storage.getPresignedViewUrl(resume.fileKey);
+      const presignedUrl = await this.storage.getPresignedViewUrl(
+        resume.fileKey,
+      );
       return { presignedUrl, isS3: true, fileName: resume.fileName };
     }
 

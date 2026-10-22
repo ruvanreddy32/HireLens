@@ -1,4 +1,9 @@
-import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
+import {
+  InjectQueue,
+  OnWorkerEvent,
+  Processor,
+  WorkerHost,
+} from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { MlService } from 'src/ml/ml.service';
@@ -29,9 +34,13 @@ export class ResumeProcessor extends WorkerHost {
   /**
    * Pipeline 1: Standalone Resume Parsing (Resume Manager upload)
    */
-  private async processResume(job: Job<{ resumeId: string; fileKey: string; originalName: string }>) {
+  private async processResume(
+    job: Job<{ resumeId: string; fileKey: string; originalName: string }>,
+  ) {
     const { resumeId, fileKey, originalName } = job.data;
-    this.logger.log(`Processing resume parse job ${job.id} for resume ${resumeId} (Attempt ${job.attemptsMade + 1})`);
+    this.logger.log(
+      `Processing resume parse job ${job.id} for resume ${resumeId} (Attempt ${job.attemptsMade + 1})`,
+    );
 
     const fileStream = await this.storage.getFileStream(fileKey);
     const chunks: Buffer[] = [];
@@ -42,7 +51,8 @@ export class ResumeProcessor extends WorkerHost {
 
     const parsed = await this.ml.parseResume(buffer, originalName);
     if (!parsed || parsed.status === 'error') {
-      const errorMsg = parsed?.message || 'ML service returned an invalid parse response';
+      const errorMsg =
+        parsed?.message || 'ML service returned an invalid parse response';
       throw new Error(`Parse failed for resume ${resumeId}: ${errorMsg}`);
     }
 
@@ -74,7 +84,9 @@ export class ResumeProcessor extends WorkerHost {
     }>,
   ) {
     const { applicationId, jobId, resumeId, fileKey, fileName } = job.data;
-    this.logger.log(`Evaluating application ${applicationId} for job ${jobId} (Attempt ${job.attemptsMade + 1})`);
+    this.logger.log(
+      `Evaluating application ${applicationId} for job ${jobId} (Attempt ${job.attemptsMade + 1})`,
+    );
 
     const [application, jobRecord] = await Promise.all([
       this.prisma.jobApplication.findUnique({ where: { id: applicationId } }),
@@ -94,7 +106,9 @@ export class ResumeProcessor extends WorkerHost {
 
     // 1. If resume is already parsed, score-only (fast)
     if (resumeId) {
-      const resume = await this.prisma.resume.findUnique({ where: { id: resumeId } });
+      const resume = await this.prisma.resume.findUnique({
+        where: { id: resumeId },
+      });
       if (
         resume?.parsedData &&
         typeof resume.parsedData === 'object' &&
@@ -105,7 +119,9 @@ export class ResumeProcessor extends WorkerHost {
         try {
           evaluation = await this.ml.scoreCandidate(parsedCandidate, jdProfile);
         } catch (err: any) {
-          this.logger.warn(`Score-only call failed: ${err.message}. Retrying with full parse.`);
+          this.logger.warn(
+            `Score-only call failed: ${err.message}. Retrying with full parse.`,
+          );
         }
       }
     }
@@ -121,7 +137,9 @@ export class ResumeProcessor extends WorkerHost {
 
       const mlResult = await this.ml.parseAndScore(buffer, fileName, jdProfile);
       if (!mlResult || mlResult.status === 'error') {
-        throw new Error(`ML parse-and-score failed: ${mlResult?.message || 'Empty response'}`);
+        throw new Error(
+          `ML parse-and-score failed: ${mlResult?.message || 'Empty response'}`,
+        );
       }
 
       evaluation = mlResult?.evaluation || null;
@@ -137,23 +155,31 @@ export class ResumeProcessor extends WorkerHost {
               parseStatus: 'COMPLETED',
             },
           })
-          .catch((e) => this.logger.warn(`Failed to backfill resume: ${e.message}`));
+          .catch((e) =>
+            this.logger.warn(`Failed to backfill resume: ${e.message}`),
+          );
       }
     }
 
     // 3. Extract 4-pillar scores
     const pillarScores = evaluation?.pillar_scores || {};
-    const skillsScore = typeof pillarScores.skills === 'number' ? pillarScores.skills : 0;
-    const experienceScore = typeof pillarScores.experience === 'number' ? pillarScores.experience : 0;
-    const projectScore = typeof pillarScores.projects === 'number' ? pillarScores.projects : 0;
+    const skillsScore =
+      typeof pillarScores.skills === 'number' ? pillarScores.skills : 0;
+    const experienceScore =
+      typeof pillarScores.experience === 'number' ? pillarScores.experience : 0;
+    const projectScore =
+      typeof pillarScores.projects === 'number' ? pillarScores.projects : 0;
     const proofOfWorkScore =
-      typeof pillarScores.proof_of_work === 'number' ? pillarScores.proof_of_work : 0;
+      typeof pillarScores.proof_of_work === 'number'
+        ? pillarScores.proof_of_work
+        : 0;
     const isKnockedOut = Boolean(evaluation?.is_knocked_out);
     const knockedOutReasons = Array.isArray(evaluation?.knockout_reasons)
       ? evaluation.knockout_reasons
       : [];
 
-    const existingParsed = (application.parsedInfo as Record<string, any>) || {};
+    const existingParsed =
+      (application.parsedInfo as Record<string, any>) || {};
 
     // 4. Update application status to APPLIED with scores
     await this.prisma.jobApplication.update({
@@ -174,7 +200,9 @@ export class ResumeProcessor extends WorkerHost {
       },
     });
 
-    this.logger.log(`Application ${applicationId} successfully scored and transitioned to APPLIED`);
+    this.logger.log(
+      `Application ${applicationId} successfully scored and transitioned to APPLIED`,
+    );
     return { success: true };
   }
 
@@ -184,7 +212,9 @@ export class ResumeProcessor extends WorkerHost {
 
     const maxAttempts = job.opts.attempts ?? 1;
     if (job.attemptsMade >= maxAttempts) {
-      this.logger.error(`Maximum attempts (${maxAttempts}) reached for job ${job.id} (${job.name})`);
+      this.logger.error(
+        `Maximum attempts (${maxAttempts}) reached for job ${job.id} (${job.name})`,
+      );
 
       // Route failed job to DLQ
       await this.dlqQueue.add(
@@ -213,7 +243,11 @@ export class ResumeProcessor extends WorkerHost {
               },
             },
           })
-          .catch((e) => this.logger.warn(`Failed to update application fallback status: ${e.message}`));
+          .catch((e) =>
+            this.logger.warn(
+              `Failed to update application fallback status: ${e.message}`,
+            ),
+          );
       } else {
         await this.prisma.resume
           .update({
@@ -227,7 +261,9 @@ export class ResumeProcessor extends WorkerHost {
               },
             },
           })
-          .catch((e) => this.logger.warn(`Failed to update resume status: ${e.message}`));
+          .catch((e) =>
+            this.logger.warn(`Failed to update resume status: ${e.message}`),
+          );
       }
     } else {
       this.logger.warn(
