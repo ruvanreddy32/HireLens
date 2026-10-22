@@ -1,30 +1,10 @@
 #Dispatches a 4-worker thread pool to extract structured data for Skills, Education, Projects, and Experience in parallel, extracting all work experience entries in a single batch prompt.
 
-import json
 import logging
-import re
 
-from ml.parsing.llm import call_llm
+from ml.parsing.llm import call_llm, parse_json_response
 
 logger = logging.getLogger(__name__)
-
-# LLM provider call
-
-def _call_llm(prompt: str) -> str:
-    """Send prompt to LLM and return raw response string."""
-    return call_llm(prompt)
-
-
-# JSON parsing helpers
-
-def _parse_json_response(raw: str) -> dict | None:
-    """Strip markdown fences and parse JSON. Returns None on failure."""
-    cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned.strip())
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return None
 
 
 def _partial_failure(raw_text: str) -> dict:
@@ -36,8 +16,8 @@ def _llm_extract(prompt: str, expected_top_key: str, raw_text: str) -> dict:
     """Generic LLM call and parse with single retry."""
     for attempt in range(2):
         try:
-            raw_response = _call_llm(prompt)
-            parsed = _parse_json_response(raw_response)
+            raw_response = call_llm(prompt)
+            parsed = parse_json_response(raw_response)
             if parsed is not None and expected_top_key in parsed:
                 return parsed
             logger.warning(

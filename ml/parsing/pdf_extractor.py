@@ -127,13 +127,12 @@ def _words_to_lines(words, line_tolerance=3):
     return lines
 
 
-def extract_text_with_layout(pdf_path):
-    """Extract per-page word and layout data from a PDF."""
-    pdf_path = Path(pdf_path)
-
+def extract_text_with_layout(pdf_source):
+    """Extract per-page word and layout data from a PDF path or file object."""
+    target = str(pdf_source) if isinstance(pdf_source, Path) else pdf_source
     pages_data = []
 
-    with pdfplumber.open(str(pdf_path)) as pdf:
+    with pdfplumber.open(target) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
             words = page.extract_words(
                 x_tolerance=3,
@@ -179,18 +178,8 @@ def _format_pages_data_to_text(pages_data: list[dict]) -> str:
     return "\n\n".join(all_text_parts)
 
 
-def extract_pdf_content(pdf_path: str | Path):
-    pages_data = extract_text_with_layout(pdf_path)
+def extract_pdf_content(pdf_source):
+    pages_data = extract_text_with_layout(pdf_source)
     raw_text = _format_pages_data_to_text(pages_data)
     return raw_text, pages_data
-
-
-def extract_text_from_pdf(pdf_path: str | Path, pages_data: list[dict] | None = None) -> str:
-    """Extract multi-column ordered text with markdown hyperlinks from a PDF.
-
-    If pages_data is already available, reuses it without reopening the PDF.
-    """
-    if pages_data is None:
-        pages_data = extract_text_with_layout(pdf_path)
-    return _format_pages_data_to_text(pages_data)
 

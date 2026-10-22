@@ -12,15 +12,7 @@ from ml.resources.project_scoring_patterns import (
     METRIC_PATTERNS,
     PROJECT_ROLE_PRESETS,
 )
-from ml.resources.skill_aliases import SKILL_ALIAS_MAP
-
-
-def _canonicalize_skill(skill: str) -> str:
-    """Normalize skill name via alias map."""
-    if not skill or not isinstance(skill, str):
-        return ""
-    clean = skill.strip().lower()
-    return SKILL_ALIAS_MAP.get(clean, skill.strip())
+from ml.resources.skill_aliases import resolve_skill_alias
 
 
 def _score_project_stack(
@@ -35,9 +27,9 @@ def _score_project_stack(
     if not tech_stack or not isinstance(tech_stack, list):
         return 0.0, []
 
-    proj_canon_map = {_canonicalize_skill(s).lower(): s for s in tech_stack if s}
-    req_canon = [_canonicalize_skill(s) for s in (required_skills or []) if s]
-    pref_canon = [_canonicalize_skill(s) for s in (preferred_skills or []) if s]
+    proj_canon_map = {resolve_skill_alias(s).lower(): s for s in tech_stack if s}
+    req_canon = [resolve_skill_alias(s) for s in (required_skills or []) if s]
+    pref_canon = [resolve_skill_alias(s) for s in (preferred_skills or []) if s]
 
     matched: list[str] = []
     req_matches = 0

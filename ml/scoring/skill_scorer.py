@@ -12,18 +12,13 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from rapidfuzz import fuzz, process
-from ml.resources.skill_aliases import SKILL_ALIAS_MAP
+from ml.resources.skill_aliases import resolve_skill_alias
 from ml.scoring.graph_expansion_scorer import compute_graph_expansion_score
 
 logger = logging.getLogger(__name__)
 
 
 # String & Vocabulary Helpers
-
-def _resolve_alias(skill: str) -> str:
-    """Map a skill string to its canonical form via alias map."""
-    return SKILL_ALIAS_MAP.get(skill.lower().strip(), skill.strip())
-
 
 def _deduplicate_preserve_order(items: list[str]) -> list[str]:
     """Remove duplicates while preserving original order and casing."""
@@ -89,11 +84,11 @@ def _canonicalise_skill_list(
         return []
 
     if not reference_vocab:
-        return [_resolve_alias(s) for s in raw_skills]
+        return [resolve_skill_alias(s) for s in raw_skills]
 
     canonical: list[str] = []
     for skill in raw_skills:
-        resolved = _resolve_alias(skill)
+        resolved = resolve_skill_alias(skill)
         # Use stricter cutoff for short names (<= 3 chars) to avoid false positives
         effective_cutoff = 95 if len(resolved) <= 3 else score_cutoff
 
@@ -196,8 +191,8 @@ def compute_direct_skill_matches(
     preferred_skills: list[str],
 ) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
     """Match candidate skills against JD vocabulary using aliases and rapidfuzz."""
-    jd_required_resolved = [_resolve_alias(s) for s in (required_skills or []) if s and s.strip()]
-    jd_preferred_resolved = [_resolve_alias(s) for s in (preferred_skills or []) if s and s.strip()]
+    jd_required_resolved = [resolve_skill_alias(s) for s in (required_skills or []) if s and s.strip()]
+    jd_preferred_resolved = [resolve_skill_alias(s) for s in (preferred_skills or []) if s and s.strip()]
     reference_vocab = _deduplicate_preserve_order(
         jd_required_resolved + jd_preferred_resolved
     )
@@ -214,49 +209,6 @@ def compute_direct_skill_matches(
     missing_preferred = [s for s in jd_preferred_resolved if s.lower() not in candidate_set_lower]
 
     return matched_required, missing_required, matched_preferred, missing_preferred, candidate_canonical
-
-
-# Backward-compatible overlap score function
-
-def compute_skill_overlap_score(
-    skills_block_raw: Union[str, list[str], list[dict]],
-    required_skills: list[str],
-    preferred_skills: list[str],
-) -> dict:
-    """Compute fuzzy match overlap between candidate skills and JD requirements."""
-    parsed_skills = extract_all_candidate_skills(skills_block_raw)
-    if not parsed_skills:
-        return {
-            "final_overlap_score": 0.0,
-            "required_match_score": 0.0,
-            "preferred_match_score": 0.0,
-            "matched_required": [],
-            "matched_preferred": [],
-            "missing_required": list(required_skills or []),
-            "missing_preferred": list(preferred_skills or []),
-            "candidate_skills_parsed": [],
-        }
-
-    matched_req, missing_req, matched_pref, missing_pref, candidate_canon = compute_direct_skill_matches(
-        candidate_skills=parsed_skills,
-        required_skills=required_skills,
-        preferred_skills=preferred_skills,
-    )
-
-    req_score = len(matched_req) / len(required_skills) if required_skills else 0.0
-    pref_score = len(matched_pref) / len(preferred_skills) if preferred_skills else 0.0
-    final_score = 0.75 * req_score + 0.25 * pref_score
-
-    return {
-        "final_overlap_score": round(final_score, 4),
-        "required_match_score": round(req_score, 4),
-        "preferred_match_score": round(pref_score, 4),
-        "matched_required": matched_req,
-        "matched_preferred": matched_pref,
-        "missing_required": missing_req,
-        "missing_preferred": missing_pref,
-        "candidate_skills_parsed": candidate_canon,
-    }
 
 
 # Main Unified Skill Scorer

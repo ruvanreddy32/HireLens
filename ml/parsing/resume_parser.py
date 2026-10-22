@@ -1,4 +1,3 @@
-import json
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -24,34 +23,29 @@ from ml.parsing.schema_validator import validate_and_flag
 logger = logging.getLogger(__name__)
 
 
-def parse_resume(pdf_path) -> dict:
-    """Parse a PDF resume into a structured dictionary."""
-    pdf_path = Path(pdf_path)
-    if not pdf_path.exists():
-        return {
-            "status": "error",
-            "message": f"File not found: {pdf_path}",
-        }
+def parse_resume(pdf_source) -> dict:
+    """Parse a PDF resume into a structured dictionary from a file path or file-like object."""
+    if isinstance(pdf_source, (str, Path)):
+        path = Path(pdf_source)
+        if not path.is_file():
+            return {
+                "status": "error",
+                "message": f"File not found: {path}",
+            }
 
-    if pdf_path.suffix.lower() != ".pdf":
-        return {
-            "status": "error",
-            "message": f"Not a PDF file: {pdf_path}",
-        }
+        if path.suffix.lower() != ".pdf":
+            return {
+                "status": "error",
+                "message": f"Not a PDF file: {path}",
+            }
 
     try:
         # 1. Extract raw text and layout in a single pass
-        raw_text, pages_data = extract_pdf_content(str(pdf_path))
-
-        if not raw_text or not raw_text.strip():
-            return {
-                "status": "error",
-                "message": "Unintelligible document structure",
-            }
+        raw_text, pages_data = extract_pdf_content(pdf_source)
 
         # 2. Sanitize and segment sections
         sanitized = sanitize_text(raw_text)
-        if not sanitized or not sanitized.strip():
+        if not sanitized:
             return {
                 "status": "error",
                 "message": "Unintelligible document structure",
@@ -103,7 +97,8 @@ def parse_resume(pdf_path) -> dict:
         return result
 
     except Exception as e:
-        logger.exception("parse_resume: unhandled exception for path '%s'", pdf_path)
+        source_name = getattr(pdf_source, "name", str(pdf_source))
+        logger.exception("parse_resume: unhandled exception for source '%s'", source_name)
         return {
             "status": "error",
             "message": f"Parse error: {str(e)}",

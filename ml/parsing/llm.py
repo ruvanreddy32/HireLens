@@ -1,5 +1,7 @@
+import json
 import logging
 import os
+import re
 from typing import Optional
 from dotenv import load_dotenv, find_dotenv
 from groq import Groq
@@ -29,4 +31,14 @@ def call_llm(prompt: str) -> str:
         temperature=0.1,
     )
     return response.choices[0].message.content or ""
+
+
+def parse_json_response(raw: str) -> Optional[dict]:
+    """Strip markdown fences and parse JSON. Returns None on failure."""
+    cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned.strip())
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
 

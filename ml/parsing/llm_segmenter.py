@@ -1,23 +1,15 @@
 #Invoked only if heuristic confidence margins fall below threshold (Δ<3)segmenting unformatted or non-standard resumes without discarding valid sections.
 
 
-import json
 import logging
-import re
 from typing import Optional
 
-from ml.parsing.llm import call_llm
+from ml.parsing.llm import call_llm, parse_json_response
 
 logger = logging.getLogger(__name__)
 
 # Margin threshold to trigger LLM fallback
 LOW_CONFIDENCE_MARGIN_THRESHOLD = 3
-
-# LLM provider call
-
-def _call_llm(prompt: str) -> str:
-    """Send a prompt to LLM and return raw response text."""
-    return call_llm(prompt)
 
 
 # LLM segmentation prompt template
@@ -53,18 +45,6 @@ Resume text:
 """
 
 
-# JSON parsing helper
-
-def _parse_json_response(raw: str) -> Optional[dict]:
-    """Strip markdown fences and parse JSON. Returns None on failure."""
-    cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned.strip())
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return None
-
-
 # Core LLM segmentation call
 
 def segment_with_llm(sanitized_text: str) -> Optional[dict]:
@@ -73,8 +53,8 @@ def segment_with_llm(sanitized_text: str) -> Optional[dict]:
 
     for attempt in range(2):
         try:
-            raw_response = _call_llm(prompt)
-            parsed = _parse_json_response(raw_response)
+            raw_response = call_llm(prompt)
+            parsed = parse_json_response(raw_response)
             if parsed and "sections" in parsed and isinstance(parsed["sections"], list):
                 return parsed
             logger.warning(

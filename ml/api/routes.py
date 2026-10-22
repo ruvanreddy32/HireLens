@@ -3,22 +3,9 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from ml.api.schemas import (JobDescriptionProfile, ScoreCandidateRequest)
 from ml.parsing.resume_parser import parse_resume
-from ml.resources.composite_scoring_patterns import (MACRO_ROLE_PRESETS,MATCH_TIER_THRESHOLDS,)
 from ml.scoring.composite_scorer import score_candidate_match
 
 router = APIRouter(prefix="/api/v1", tags=["ML Engine"])
-
-
-@router.get("/presets", summary="Get role presets and match tier thresholds for UI")
-def get_presets_endpoint():
-    tiers = [
-        {"min_score": cutoff, "label": label, "color": color}
-        for cutoff, label, color in MATCH_TIER_THRESHOLDS
-    ]
-    return {
-        "presets": MACRO_ROLE_PRESETS,
-        "match_tiers": tiers,
-    }
 
 
 @router.post("/parse-resume", summary="Parse a PDF resume into structured JSON")

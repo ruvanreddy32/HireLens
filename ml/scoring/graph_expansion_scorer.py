@@ -24,11 +24,6 @@ def _build_graph_from_config() -> nx.Graph:
 _SINGLETON_GRAPH: nx.Graph = _build_graph_from_config()
 
 
-def get_skill_graph() -> nx.Graph:
-    """Return the singleton skill graph instance."""
-    return _SINGLETON_GRAPH
-
-
 def _bfs_find_best_partial_score(
     graph: nx.Graph,
     start_skill: str,
