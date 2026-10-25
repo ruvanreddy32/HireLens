@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import {
   JobDescriptionProfile,
-  WeightsConfig,
   CandidateScoreResponse,
 } from './ml.types';
 
@@ -16,34 +15,27 @@ export class MlService {
   private readonly baseUrl: string;
 
   constructor() {
-    this.baseUrl = (
-      process.env.ML_SERVICE_URL || 'http://127.0.0.1:8000'
-    ).replace(/\/+$/, '');
+    this.baseUrl = process.env.ML_SERVICE_URL ||"http://127.0.0.1:8000";
   }
 
   // Upload and parse resume PDF into structured candidate profile
   async parseResume(fileBuffer: Buffer, fileName: string): Promise<any> {
     const formData = new FormData();
-    const blob = new Blob([new Uint8Array(fileBuffer)], {
-      type: 'application/pdf',
-    });
-    formData.append('file', blob, fileName);
-
-    return this.sendMultipartRequest('/api/v1/parse-resume', formData);
+    formData.append('file', new Blob([new Uint8Array(fileBuffer)], { type: 'application/pdf' }), fileName);
+    return this.sendRequest('/api/v1/parse-resume', { method: 'POST', body: formData });
   }
 
   // Score candidate profile against a job description profile
   async scoreCandidate(
     candidateData: any,
     jdProfile: JobDescriptionProfile,
-    weights?: WeightsConfig,
   ): Promise<CandidateScoreResponse> {
-    return this.sendJsonRequest<CandidateScoreResponse>('/api/v1/score', {
+    return this.sendRequest<CandidateScoreResponse>('/api/v1/score', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         candidate_data: candidateData,
         jd_profile: jdProfile,
-        weights,
       }),
     });
   }
@@ -53,19 +45,11 @@ export class MlService {
     fileBuffer: Buffer,
     fileName: string,
     jdProfile: JobDescriptionProfile,
-    weights?: WeightsConfig,
   ): Promise<any> {
     const formData = new FormData();
-    const blob = new Blob([new Uint8Array(fileBuffer)], {
-      type: 'application/pdf',
-    });
-    formData.append('file', blob, fileName);
+    formData.append('file', new Blob([new Uint8Array(fileBuffer)], { type: 'application/pdf' }), fileName);
     formData.append('jd_profile', JSON.stringify(jdProfile));
-    if (weights) {
-      formData.append('weights', JSON.stringify(weights));
-    }
-
-    return this.sendMultipartRequest('/api/v1/parse-and-score', formData);
+    return this.sendRequest('/api/v1/parse-and-score', { method: 'POST', body: formData });
   }
 
   // Convert Prisma Job record to JobDescriptionProfile expected by ML service
@@ -74,66 +58,32 @@ export class MlService {
     requiredSkills?: string[];
     preferredSkills?: string[];
     minExperience?: number;
-    education?: string | null;
   }): JobDescriptionProfile {
-    const titleLower = job.title.toLowerCase();
-    let roleFamily = 'generalist';
-    if (
-      titleLower.includes('back') ||
-      titleLower.includes('python') ||
-      titleLower.includes('node')
-    ) {
-      roleFamily = 'backend';
-    } else if (
-      titleLower.includes('front') ||
-      titleLower.includes('react') ||
-      titleLower.includes('ui')
-    ) {
-      roleFamily = 'frontend';
-    } else if (
-      titleLower.includes('ml') ||
-      titleLower.includes('ai') ||
-      titleLower.includes('data')
-    ) {
-      roleFamily = 'ai_ml';
-    }
-
+    const minExp = job.minExperience ?? 0;
     return {
       title: job.title,
-      role_family: roleFamily,
       required_skills: job.requiredSkills || [],
       preferred_skills: job.preferredSkills || [],
-      min_experience_years: job.minExperience ?? 0,
-      education_level: job.education || undefined,
+      target_yoe: minExp,
       knockout_criteria: {
-        min_experience_years: job.minExperience ?? 0,
-        required_skills: job.requiredSkills || [],
+        min_total_experience_months: minExp * 12,
+        mandatory_skills: job.requiredSkills || [],
       },
     };
   }
 
-  private async sendJsonRequest<T>(
+  private async sendRequest<T>(
     endpoint: string,
     init: RequestInit,
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     try {
-      const response = await fetch(url, {
-        ...init,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(init.headers || {}),
-        },
-      });
+      const response = await fetch(url, init);
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(
-          `ML Service Error [${response.status}]: ${errorText}`,
-        );
-        throw new BadRequestException(
-          `ML Service returned error: ${errorText}`,
-        );
+        this.logger.error(`ML Service Error [${response.status}]: ${errorText}`);
+        throw new BadRequestException(`ML Service returned error: ${errorText}`);
       }
 
       return (await response.json()) as T;
@@ -141,47 +91,9 @@ export class MlService {
       if (err instanceof BadRequestException) {
         throw err;
       }
-      this.logger.error(
-        `Failed to connect to ML Service at ${url}: ${err.message}`,
-      );
-      throw new BadGatewayException(
-        `ML Service is unreachable at ${this.baseUrl}`,
-      );
-    }
-  }
-
-  private async sendMultipartRequest<T = any>(
-    endpoint: string,
-    formData: FormData,
-  ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(
-          `ML Service Multipart Error [${response.status}]: ${errorText}`,
-        );
-        throw new BadRequestException(
-          `ML Service returned error: ${errorText}`,
-        );
-      }
-
-      return (await response.json()) as T;
-    } catch (err: any) {
-      if (err instanceof BadRequestException) {
-        throw err;
-      }
-      this.logger.error(
-        `Failed to upload to ML Service at ${url}: ${err.message}`,
-      );
-      throw new BadGatewayException(
-        `ML Service is unreachable at ${this.baseUrl}`,
-      );
+      this.logger.error(`Failed to connect to ML Service at ${url}: ${err.message}`);
+      throw new BadGatewayException(`ML Service is unreachable at ${this.baseUrl}`);
     }
   }
 }
+

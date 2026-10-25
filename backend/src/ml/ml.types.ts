@@ -1,15 +1,17 @@
 export interface JobDescriptionProfile {
   title: string;
-  role_family?: string;
   required_skills: string[];
   preferred_skills?: string[];
-  min_experience_years?: number;
-  education_level?: string;
+  target_yoe?: number;
+  target_seniority?: string;
+  role_preset?: string;
   knockout_criteria?: {
-    min_experience_years?: number;
-    required_skills?: string[];
-    strict_degree_requirement?: boolean;
+    min_total_experience_months?: number;
+    mandatory_skills?: string[];
+    min_skill_score?: number;
+    min_project_score?: number;
   };
+  macro_weights?: WeightsConfig;
 }
 
 export interface WeightsConfig {
