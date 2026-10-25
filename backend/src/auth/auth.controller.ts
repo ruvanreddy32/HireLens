@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Post,
-  Req,
-  Get,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Body, Controller, Post, Req, Get, UseGuards, HttpCode, HttpStatus, Redirect,Query,Delete,} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ZodValidationPipe } from 'src/common/pipes/zod-validator.pipe';
 import { registerInput, registerSchema } from './schemas/register.schema';
@@ -48,4 +39,37 @@ export class AuthController {
   async getMe(@Req() req: AuthenticatedRequest) {
     return this.authService.getMe(req.user.userId);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('github')
+  async getGithubAuthUrl(@Req() req: AuthenticatedRequest) {
+    return this.authService.getGithubOAuthUrl(req.user.userId);
+  }
+  @Get('github/callback')
+  @Redirect()
+  async handleGithubCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') error: string,
+  ) {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // Handle user denial on GitHub consent screen
+    if (error === 'access_denied') {
+      return { url: `${frontendUrl}/profile?github=cancelled` };
+    }
+    const result = await this.authService.handleGithubCallback(code, state);
+    return { url: result.redirectUrl };
+  }
+  @UseGuards(JwtAuthGuard)
+  @Delete('github/unlink')
+  async unlinkGithub(@Req() req: AuthenticatedRequest) {
+    return this.authService.unlinkGithub(req.user.userId);
+  }
+  @UseGuards(JwtAuthGuard)
+  @Post('github/sync')
+  @HttpCode(HttpStatus.OK)
+  async syncGithub(@Req() req: AuthenticatedRequest) {
+    return this.authService.syncGithubTelemetry(req.user.userId);
+  }
+
 }
